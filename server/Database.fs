@@ -2,182 +2,245 @@ namespace Tasks
 
 open System
 open Microsoft.Data.Sqlite
+open FSharp.Data.Dapper
 open Tasks.Models
 
 module Database =
-    [<Literal>]
-    let private ConnectionString = "Data Source=data.db;foreign keys=true;"
 
-    let private executeQuery (query: string) (mapper: SqliteParameterCollection -> unit) =
-        use connection = new SqliteConnection(ConnectionString)
-        connection.Open()
-        use txn: SqliteTransaction = connection.BeginTransaction()
-        let cmd = connection.CreateCommand()
-        cmd.Transaction <- txn
-        cmd.CommandText <- query
-        mapper(cmd.Parameters)
-        cmd.ExecuteNonQuery() |> ignore
-        txn.Commit()
+    module Connection =
+        let private mkOnDiskConnectionString (dataSource: string) = sprintf "Data Source = %s; foreign keys = true;" dataSource
+        let makeOnDisk () = new SqliteConnection (mkOnDiskConnectionString "./data.db")
 
-    let private readQuery (query: string) (mapper: SqliteParameterCollection -> unit) (reader: SqliteDataReader -> 'a) =
-        use connection = new SqliteConnection(ConnectionString)
-        connection.Open()
-        let cmd = connection.CreateCommand()
-        cmd.CommandText <- query
-        mapper(cmd.Parameters)
-        use dataReader = cmd.ExecuteReader()
-        seq {
-            while dataReader.Read() do
-            yield reader(dataReader)
-        }
-        |> Seq.toList
+    module Queries =
+        let private connection () = SqliteConnection (Connection.makeOnDisk())
+        let inline (=>) a b = a, box b
+        let querySingleOptionAsync<'R> = querySingleOptionAsync<'R> (connection)
+        let querySeqAsync<'R> = querySeqAsync<'R> (connection)
 
-    let identifiableReader (r: SqliteDataReader) =
-        {
-            Id = Convert.ToInt32(r.["id"])
-            Name = Convert.ToString(r.["name"])
-        }
+        module Schema =
 
-    let private taskReader (r: SqliteDataReader) =
-            {
-                Id = Convert.ToInt32(r.["id"]);
-                Description = Convert.ToString(r.["description"]);
-                Completed = Convert.ToBoolean(r.["completed"]);
-                Deadline = Convert.ToInt32(r.["deadline"]);
-                RecurringInterval = Convert.ToInt32(r.["recurring_interval"]);
-                AssignedGroup =
-                    if (Convert.IsDBNull(r.["assigned_group"])) then
-                        None
-                    else
-                        Some (Convert.ToString(r.["assigned_group"]));
-                AssignedUser = Convert.ToString(r.["assigned_user"])
+            let createTables = querySingleOptionAsync<unit> {
+                script """
+                    CREATE TABLE IF NOT EXISTS `user` (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        username TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        hash TEXT NOT NULL,
+                        api_key TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS `group` (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS `user_group` (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        group_id INTEGER NOT NULL,
+                        FOREIGN KEY(user_id) REFERENCES `user`(id),
+                        FOREIGN KEY(group_id) REFERENCES `group`(id)
+                    );
+                    CREATE TABLE IF NOT EXISTS `recurring_interval` (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS `task` (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        description TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        completed INT(1) DEFAULT 0 NOT NULL,
+                        deleted INT(1) DEFAULT 0 NOT NULL,
+                        deadline INTEGER NULL,
+                        recurring_interval INTEGER NULL,
+                        assigned_group INTEGER NULL,
+                        assigned_user INTEGER NOT NULL,
+                        FOREIGN KEY(recurring_interval) REFERENCES `recurring_interval`(id),
+                        FOREIGN KEY(assigned_group) REFERENCES `group`(id),
+                        FOREIGN KEY(assigned_user) REFERENCES `user`(id)
+                    );
+                """
             }
 
-    let getUserHash (username: string) =
-        let mapper (p: SqliteParameterCollection) =
-            p.AddWithValue("$username", username) |> ignore
-        let reader (r: SqliteDataReader) = Convert.ToString(r.["hash"])
-        readQuery @"
-            SELECT hash
-            FROM `user`
-            WHERE username = $username LIMIT 1
-            " mapper reader |> List.tryHead
+        module User =
 
-    let getUserApiKey (username: string) =
-        let mapper (p: SqliteParameterCollection) =
-            p.AddWithValue("$username", username) |> ignore
-        let reader (r: SqliteDataReader) = Convert.ToString(r.["api_key"])
-        readQuery @"
-            SELECT api_key
-            FROM `user`
-            WHERE username = $username LIMIT 1
-            " mapper reader |> List.tryHead
-
-    let getUserFromApiKey (key: string) =
-        let userReader (r: SqliteDataReader) =
-            {
-                Id = Convert.ToInt32(r.["id"])
-                Username = Convert.ToString(r.["username"])
-                Name = Convert.ToString(r.["name"])
-                Groups = []
+            let getHashByUsername (username: string) = querySingleOptionAsync<string> {
+                script """
+                    SELECT
+                        hash
+                    FROM
+                        `user`
+                    WHERE
+                        username = @username
+                    LIMIT 1;
+                """
+                parameters (dict ["username" => username])
             }
-        let userMapper (p: SqliteParameterCollection) = p.AddWithValue("$key", key) |> ignore
-        let user = readQuery @"
-            SELECT *
-            FROM user
-            WHERE api_key = $key LIMIT 1" userMapper userReader
-        match List.tryHead user with
-        | None -> None
-        | Some u ->
-            let groupMapper (p: SqliteParameterCollection) = p.AddWithValue("$id", u.Id) |> ignore
-            let groups = readQuery @"
-                SELECT
-                    g.name FROM `group` g
-                JOIN `user_group` ug on g.id = ug.group_id
-                WHERE ug.user_id = $id" groupMapper (fun r -> Convert.ToString(r.["name"]))
-            Some {u with Groups = groups}
 
-    let getTask (id: int) =
-        let mapper (p: SqliteParameterCollection) =
-            p.AddWithValue("$id", id) |> ignore
-        readQuery @"
-            SELECT *
-            FROM task
-            WHERE id = $id LIMIT 1" mapper taskReader
+            let getApiKeyByUsername (username: string) = querySingleOptionAsync<string> {
+                script """
+                    SELECT
+                        api_key
+                    FROM
+                        `user`
+                    WHERE
+                        username = @username
+                    LIMIT 1;
+                """
+                parameters (dict ["username" => username])
+            }
 
-    let getOpenTasks (user: User) =
-        let mapper (p: SqliteParameterCollection) =
-            p.AddWithValue("$user", user.Id) |> ignore
-        readQuery @"
-            SELECT
-                t.id, t.description, t.completed, t.deadline, t.deadline, t.recurring_interval, 
-                COALESCE(g.name, '') AS assigned_group,
-                CASE WHEN u.id = $user THEN 'you' ELSE u.name END AS assigned_user
-            FROM `task` t
-            LEFT JOIN `group` g ON t.assigned_group = g.id
-            LEFT JOIN `user` u ON t.assigned_user = u.id
-            WHERE t.completed = 0 AND t.deleted = 0 AND (t.assigned_user = $user OR t.assigned_group
-            IN (SELECT group_id from `user_group` WHERE user_id = $user))
-            ORDER BY description ASC" mapper taskReader
+            let getUserByApiKey (key: string) = querySingleOptionAsync<User> {
+                script """
+                    SELECT
+                        id, username, name
+                    FROM
+                        `user`
+                    WHERE
+                        api_key = @api_key
+                    LIMIT 1;
+                """
+                parameters (dict ["api_key" => key])
+            }
 
-    let createTask (task: CreateTaskRequest) =
-        let mapper (p: SqliteParameterCollection) =
-            p.AddWithValue("$description", task.Description) |> ignore
-            p.AddWithValue("$deadline", task.Deadline) |> ignore
-            p.AddWithValue("$recurring_interval", task.RecurringInterval) |> ignore
-            match task.AssignedGroup with
-                | None -> p.AddWithValue("$assigned_group", Convert.DBNull) |> ignore
-                | Some group -> p.AddWithValue("$assigned_group", group) |> ignore
-            p.AddWithValue("$assigned_user", task.AssignedUser) |> ignore
-        executeQuery @"
-            INSERT INTO `task`
-                (id, description, completed, deadline, recurring_interval, assigned_group, assigned_user)
-            VALUES
-                (NULL, $description, 0, $deadline, $recurring_interval, $assigned_group, $assigned_user)" mapper
+            let getAllUsers () = querySeqAsync<Identifiable> {
+                script """
+                    SELECT
+                        id, name
+                    FROM
+                        `user`;
+                """
+            }
 
-    let getAssignedUser (id: int) =
-        readQuery @"
-        SELECT assigned_user
-        FROM `task`
-        WHERE id = $id" (fun p -> p.AddWithValue("$id", id) |> ignore) (fun r -> Convert.ToInt32(r.["assigned_user"]))
-        |> List.tryHead
+        module Group =
 
-    let completeTask (id: int) (recurring: bool) =
-        if (recurring) then
-            executeQuery @"
-                INSERT INTO `task`
-                    (description, deadline, recurring_interval, assigned_group, assigned_user)
-                SELECT description,
-                    (SELECT CASE
-                        WHEN recurring_interval = 0 THEN 0
-                        WHEN recurring_interval = 1 THEN STRFTIME('%s', deadline, 'unixepoch', '+1 hour')
-                        WHEN recurring_interval = 2 THEN STRFTIME('%s', deadline, 'unixepoch', '+1 day')
-                        WHEN recurring_interval = 3 THEN STRFTIME('%s', deadline, 'unixepoch', '+7 day')
-                        WHEN recurring_interval = 4 THEN STRFTIME('%s', deadline, 'unixepoch', '+1 month')
-                        WHEN recurring_interval = 5 THEN STRFTIME('%s', deadline, 'unixepoch', '+1 year')
-                    END AS deadline
-                    FROM `task` WHERE id = $id),
-                recurring_interval, assigned_group, assigned_user
-                FROM `task`
-                WHERE id = $id" (fun p -> p.AddWithValue("$id", id) |> ignore)
-        executeQuery @"
-            UPDATE `task`
-            SET completed = 1
-            WHERE id = $id" (fun p -> p.AddWithValue("$id", id) |> ignore)
+            let getAllGroups () = querySeqAsync<Identifiable> {
+                script """
+                    SELECT
+                        id, name
+                    FROM
+                        `group`;
+                """
+            }
 
-    let deleteTask (id: int) =
-        let mapper (p: SqliteParameterCollection) = p.AddWithValue("$id", id) |> ignore
-        executeQuery @"
-            UPDATE task SET deleted = 1 WHERE id = $id" mapper
+        module Task =
 
-    let getUsers () =
-        readQuery @"
-            SELECT
-                id, name
-            FROM `user`" ignore identifiableReader
+            let getOpenTasksByUserId (userId: int) = querySeqAsync<Task> {
+                script """
+                    SELECT
+                        *
+                    FROM
+                        `task`
+                    WHERE
+                        completed = 0
+                        AND
+                            deleted = 0
+                        AND
+                            (assigned_user = $user_id
+                            OR
+                                assigned_group
+                                    IN
+                                        (SELECT
+                                            group_id from `user_group`
+                                        WHERE
+                                            user_id = $user_id
+                                        )
+                            )
+                    ORDER BY
+                        description ASC;
+                """
+                parameters (dict ["user_id" => userId])
+            }
 
-    let getGroups () =
-        readQuery @"
-            SELECT
-                id, name
-            FROM `group`" ignore identifiableReader
+            let getTaskById (id: int) = querySingleOptionAsync<Task> {
+                script """
+                    SELECT
+                        *
+                    FROM
+                        `task`
+                    WHERE
+                        id = @id
+                    LIMIT 1;
+                """
+                parameters (dict ["id" => id])
+            }
+
+            let getAssignedUser (id: int) = querySingleOptionAsync<int> {
+                script """
+                    SELECT
+                        assigned_user
+                    FROM
+                        `task`
+                    WHERE
+                        id = @id
+                    LIMIT 1;
+                """
+                parameters (dict ["id" => id])
+            }
+
+            let createTask (task: CreateTaskRequest) = querySingleOptionAsync<unit> {
+                script """
+                    INSERT INTO `task`
+                        (id, description, notes, completed, deadline, recurring_interval, assigned_group, assigned_user)
+                    VALUES
+                        (NULL, @description, @notes, 0, @deadline, @recurring_interval, @assigned_group, @assigned_user);
+                """
+                parameters (dict [
+                    "description" => task.Description;
+                    "notes" => task.Notes;
+                    "deadline" => task.Deadline;
+                    "recurring_interval" => task.RecurringInterval;
+                    "assigned_group" => task.AssignedGroup;
+                    "assigned_user" => task.AssignedUser
+                    ])
+            }
+
+            let deleteTask (id: int) = querySingleOptionAsync<unit> {
+                script """
+                    UPDATE `task`
+                    SET
+                        deleted = 1
+                    WHERE
+                        id = @id;
+                """
+                parameters (dict ["id" => id])
+            }
+
+            let completeTask (id: int) = querySingleOptionAsync<unit> {
+                script """
+                    UPDATE `task`
+                    SET
+                        completed = 1
+                    WHERE
+                        id = @id;
+                """
+                parameters (dict ["id" => id])
+            }
+
+            let rescheduleRecurringTask (id: int) = querySingleOptionAsync<unit> {
+                script """
+                    INSERT INTO `task`
+                        (description, notes, deadline, recurring_interval, assigned_group, assigned_user)
+                    SELECT description, notes, 
+                    (SELECT
+                        CASE
+                            WHEN recurring_interval = NULL THEN NULL
+                            WHEN recurring_interval = 0 THEN STRFTIME("%s", deadline, "unixepoch", "+1 hour")
+                            WHEN recurring_interval = 1 THEN STRFTIME("%s", deadline, "unixepoch", "+1 day")
+                            WHEN recurring_interval = 2 THEN STRFTIME("%s", deadline, "unixepoch", "+7 day")
+                            WHEN recurring_interval = 3 THEN STRFTIME("%s", deadline, "unixepoch", "+1 month")
+                            WHEN recurring_interval = 4 THEN STRFTIME("%s", deadline, "unixepoch", "+1 year")
+                        END
+                        AS
+                            deadline
+                        FROM
+                            `task`
+                        WHERE
+                            id = @id
+                    ),
+                    recurring_interval, assigned_group, assigned_user
+                FROM
+                    `task`
+                WHERE
+                    id = @id;
+                """
+                parameters (dict ["id" => id])
+            }

@@ -7,35 +7,34 @@ open Microsoft.AspNetCore.Cors.Infrastructure
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
-open Microsoft.AspNetCore.Authentication.Cookies
 open Microsoft.Extensions.DependencyInjection
 open Giraffe
 open Tasks.Models
+open Tasks.UserService
+open Tasks.HttpFilters
 open Tasks.HttpHandlers
 open Tasks.Extensions
 open System.Text.Json.Serialization
-
-let authorize =
-    authorizeRequest validateApiKey (setStatusCode 401 >=> json {Message = "Unauthorized"})
+open FSharp.Data.Dapper
 
 let webApp =
-    let parsingError err = setStatusCode 400 >=> json {Message = err}
+    let parsingError message = setStatusCode 400 >=> json {Message = message}
     choose [
         subRoute "/api"
             (choose [
-                GET >=> authorize >=> choose [
-                    route "/profile" >=> getProfile
-                    route "/tasks" >=> getOpenTasks
-                    route "/users" >=> getUsers
-                    route "/groups" >=> getGroups
+                GET >=> authorizeWithApiKey >=> choose [
+                    route "/profile" >=> User.getUserProfile
+                    route "/tasks" >=> Task.getOpenTasks
+                    route "/users" >=> User.getAllUsers
+                    route "/groups" >=> Group.getGroups
                 ]
                 POST >=> choose [
-                    route "/login" >=> tryBindJson<LoginRequest> parsingError authenticate
-                    authorize >=> subRoute "/tasks" (
+                    route "/login" >=> tryBindJson<LoginRequest> parsingError User.authenticate
+                    authorizeWithApiKey >=> subRoute "/tasks" (
                         choose [
-                            route "/create" >=> tryBindJson<CreateTaskRequest> parsingError (validateModel createTask)
-                            routef "/complete/%i" completeTask
-                            routef "/delete/%i" deleteTask
+                            route "/create" >=> tryBindJson<CreateTaskRequest> parsingError (validateModel Task.createTask)
+                            routef "/complete/%i" Task.completeTask
+                            routef "/delete/%i" Task.deleteTask
                     ])
                 ]
             ])
@@ -73,6 +72,12 @@ let configureLogging (builder: ILoggingBuilder) =
 
 [<EntryPoint>]
 let main args =
+
+    // Allow optional types in models
+    OptionHandler.RegisterTypes()
+    // Allow tables with column_name to map to records with ColumnName
+    Dapper.DefaultTypeMap.MatchNamesWithUnderscores <- true
+
     Host.CreateDefaultBuilder(args)
         .ConfigureWebHostDefaults(
             fun webHostBuilder ->

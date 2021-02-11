@@ -13,6 +13,7 @@ type Props = {
   
 type State = {
   description: string,
+  notes: string,
   deadline: string,
   recurringInterval: string,
   assignedGroup: string
@@ -32,6 +33,7 @@ export default class AddTask extends Component<Props, State> {
       super(props)
       this.state = {
         description: "",
+        notes: "",
         deadline: "",
         recurringInterval: "",
         assignedGroup: "",
@@ -41,7 +43,7 @@ export default class AddTask extends Component<Props, State> {
       this.handleSubmit = this.handleSubmit.bind(this)
     }
 
-    handleChange(event: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLSelectElement>): void {
+    handleChange(event: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLSelectElement> | React.ChangeEvent<HTMLTextAreaElement>): void {
       this.setState({
         ...this.state,
         [event.currentTarget.name]: event.currentTarget.value
@@ -85,8 +87,9 @@ export default class AddTask extends Component<Props, State> {
       }
       let body = JSON.stringify({
         description: this.state.description,
+        notes: this.state.notes,
         deadline: deadline,
-        recurringInterval: Number(this.state.recurringInterval),
+        recurringInterval: this.state.recurringInterval === "" ? null : Number(this.state.recurringInterval),
         assignedGroup: this.state.assignedGroup === "" ? null : Number(this.state.assignedGroup),
         assignedUser: Number(this.state.assignedUser)
       })
@@ -97,16 +100,17 @@ export default class AddTask extends Component<Props, State> {
         {method: "POST", headers: {"X-API-Key": apiKey}, body: body})
         .then(response => response.json().then(data => ({response: response, body: data})))
         .then((data) => {
-          if (!data.response.ok) {
-            return this.props.onError(data.body.message)
+          if (data.response.ok) {
+            this.props.getTasks()
+            return this.props.onSuccess(data.body.message)
           }
-          this.props.getTasks()
-          return this.props.onSuccess(data.body.message)
-          },
-          (_) => {
-            this.props.onError("Network error")
+          else {
+            throw Error(data.body.message)
           }
-        )
+          })
+        .catch((error: Error) => {
+          return this.props.onError(error.message)
+        })
       }
 
     }
@@ -185,14 +189,23 @@ export default class AddTask extends Component<Props, State> {
                     <label htmlFor="assignedUser">Assigned person</label>
                   </div>
                   <div className="form-group-body">
-                    <select className="form-select select-sm" id="assignedUser" name="assignedUser" onChange={this.handleChange}>
+                    <select className="form-select select-sm" id="assignedUser" name="assignedUser" defaultValue={this.props.profile.id} onChange={this.handleChange}>
                       <option></option>
                       {this.props.users.map(user => {
                         return (
-                          <option key={user.id} value={user.id} selected={user.id === this.props.profile.id}>{user.name}</option>
+                          <option key={user.id} value={user.id}>{user.name}</option>
                         )
                       })}
                     </select>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <div className="form-group-header">
+                    <label htmlFor="notes">Notes</label>
+                  </div>
+                  <div className="form-group-body">
+                    <textarea className="form-control input-sm" rows={2} id="notes" name="notes" onChange={this.handleChange}></textarea>
                   </div>
                 </div>
 

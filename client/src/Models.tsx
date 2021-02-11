@@ -1,12 +1,13 @@
 interface Task {
-    id: number
-    description: string
-    completed: boolean
-    deadline: number
-    recurringInterval: number
-    assignedGroup: string
-    assignedUser: string
-  }
+  id: number
+  description: string
+  notes: string
+  completed: boolean
+  deadline: number
+  recurringInterval: number
+  assignedGroup: number | null
+  assignedUser: number
+}
 
 interface UserProfile {
   id: number

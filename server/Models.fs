@@ -35,43 +35,43 @@ type User =
         Id: int
         Username: string
         Name: string
-        Groups: string list
     }
 
 [<CLIMutable>]
 type CreateTaskRequest =
     {
         Description: string
-        Deadline: int
-        RecurringInterval: int
-        AssignedGroup: int option
-        AssignedUser: int
+        Notes: string
+        Deadline: int64
+        RecurringInterval: int64 option
+        AssignedGroup: int64 option
+        AssignedUser: int64
     }
 
     member this.HasErrors () =
         if this.Description.Length = 0 then Some "Description must be non-empty"
-        else if this.Deadline > 0 && DateTimeOffset.FromUnixTimeSeconds(System.Convert.ToInt64(this.Deadline)).CompareTo(DateTimeOffset.Now) < 0 then Some "Deadline must be in the future"
-        else if this.RecurringInterval < 0 then Some "A recurring task must specify a valid interval"
+        else if this.Deadline > 0L && DateTimeOffset.FromUnixTimeSeconds(this.Deadline).CompareTo(DateTimeOffset.Now) < 0 then Some "Deadline must be in the future"
+        else if this.Deadline = 0L && Option.isSome(this.RecurringInterval) then Some "Recurring tasks must specify a deadline"
+        else if (this.RecurringInterval |> Option.fold (fun _ i -> not (List.contains i [0L; 1L; 2L; 3L; 4L])) false) then Some "Recurring interval must be in [0, 1, 2, 3, 4]"
         else None
 
     interface IModelValidation<CreateTaskRequest> with
         member this.Validate() =
+            let validationError message = setStatusCode 400 >=> json {Message = message}
             match this.HasErrors() with
             | None -> Ok this
-            | Some err -> Error (RequestErrors.badRequest (text err))
+            | Some error -> Error (validationError error)
 
 [<CLIMutable>]
 type Task =
     {
-        Id: int
+        Id: int64
         Description: string
+        Notes: string
         Completed: bool
-        Deadline: int
-        RecurringInterval: int
-        AssignedGroup: string option
-        AssignedUser: string
+        Deleted: bool
+        Deadline: int64 option
+        RecurringInterval: int64 option
+        AssignedGroup: int64 option
+        AssignedUser: int64
     }
-
-type UserService() =
-    [<DefaultValue>]
-    val mutable user: User
