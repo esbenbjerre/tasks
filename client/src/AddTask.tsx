@@ -138,7 +138,7 @@ export default class AddTask extends Component<Props, State> {
 
                 <div className="form-group">
                   <div className="form-group-header">
-                    <label htmlFor="deadline">Deadline</label>
+                    <label htmlFor="deadline">Deadline <span className="text-small text-gray">(optional)</span></label>
                   </div>
                   <div className="form-group-body">
                     <select className="form-select select-sm" id="deadline" name="deadline" onChange={this.handleChange}>
@@ -154,7 +154,7 @@ export default class AddTask extends Component<Props, State> {
 
                 <div className="form-group">
                   <div className="form-group-header">
-                    <label htmlFor="recurringInterval">Recurring</label>
+                    <label htmlFor="recurringInterval">Recurring <span className="text-small text-gray">(optional)</span></label>
                   </div>
                   <div className="form-group-body">
                     <select className="form-select select-sm" id="recurringInterval" name="recurringInterval" onChange={this.handleChange}>
@@ -170,7 +170,7 @@ export default class AddTask extends Component<Props, State> {
 
                 <div className="form-group">
                   <div className="form-group-header">
-                    <label htmlFor="assignedGroup">Assigned team</label>
+                    <label htmlFor="assignedGroup">Assigned team <span className="text-small text-gray">(optional)</span></label>
                   </div>
                   <div className="form-group-body">
                     <select className="form-select select-sm" id="assignedGroup" name="assignedGroup" onChange={this.handleChange}>
@@ -189,7 +189,7 @@ export default class AddTask extends Component<Props, State> {
                     <label htmlFor="assignedUser">Assigned person</label>
                   </div>
                   <div className="form-group-body">
-                    <select className="form-select select-sm" id="assignedUser" name="assignedUser" defaultValue={this.props.profile.id} onChange={this.handleChange}>
+                    <select className="form-select select-sm" id="assignedUser" name="assignedUser" value={this.props.profile.id} onChange={this.handleChange}>
                       <option></option>
                       {this.props.users.map(user => {
                         return (
@@ -202,7 +202,7 @@ export default class AddTask extends Component<Props, State> {
 
                 <div className="form-group">
                   <div className="form-group-header">
-                    <label htmlFor="notes">Notes</label>
+                    <label htmlFor="notes">Notes <span className="text-small text-gray">(optional)</span></label>
                   </div>
                   <div className="form-group-body">
                     <textarea className="form-control input-sm" rows={2} id="notes" name="notes" onChange={this.handleChange}></textarea>
