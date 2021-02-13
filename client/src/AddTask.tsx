@@ -1,16 +1,18 @@
+import { NoteIcon, OrganizationIcon, PeopleIcon, PersonIcon, StopwatchIcon, SyncIcon } from "@primer/octicons-react"
 import React, {Component} from "react"
-import {UserProfile, Identifiable} from "./Models"
-import {Time} from "./Time"
+import { API_URL } from "./Constants"
+import { UserProfile, Identifiable, ToastType } from "./Models"
+import { Time } from "./Time"
 
 type Props = {
-    profile: UserProfile
-    users: Array<Identifiable>
-    groups: Array<Identifiable>
-    onSuccess: (message: string) => void
-    onError: (error: string) => void
-    getTasks: () => void
-  }
-  
+  profile: UserProfile | null
+  users: Array<Identifiable>
+  groups: Array<Identifiable>
+  withApiKey: (f: (apiKey: string) => void) => void
+  updateTasks: () => void
+  showToast: (type: ToastType, message: string) => void
+}
+
 type State = {
   description: string,
   notes: string,
@@ -52,10 +54,6 @@ export default class AddTask extends Component<Props, State> {
 
     handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
       event.preventDefault()
-      
-      if (this.state.description === "") {
-        return this.props.onError("Description must be non-empty")
-      }
 
       let now = new Date()
       let deadline = 0
@@ -85,6 +83,7 @@ export default class AddTask extends Component<Props, State> {
           deadline = Time.toUnixTime(Time.addToDate(now, 1, "year"))
           break
       }
+
       let body = JSON.stringify({
         description: this.state.description,
         notes: this.state.notes,
@@ -93,26 +92,24 @@ export default class AddTask extends Component<Props, State> {
         assignedGroup: this.state.assignedGroup === "" ? null : Number(this.state.assignedGroup),
         assignedUser: Number(this.state.assignedUser)
       })
-      console.log(body)
-      let apiKey = localStorage.getItem("apiKey")
-      if (apiKey !== null && apiKey !== "") {
-        fetch("https://localhost:5001/api/tasks/create",
+
+      this.props.withApiKey(apiKey => {
+        fetch(`${API_URL}/tasks/create`,
         {method: "POST", headers: {"X-API-Key": apiKey}, body: body})
         .then(response => response.json().then(data => ({response: response, body: data})))
         .then((data) => {
           if (data.response.ok) {
-            this.props.getTasks()
-            return this.props.onSuccess(data.body.message)
+            this.props.updateTasks()
+            return this.props.showToast("info", data.body.message)
           }
           else {
             throw Error(data.body.message)
           }
           })
         .catch((error: Error) => {
-          return this.props.onError(error.message)
+          return this.props.showToast("error", error.message)
         })
-      }
-
+      })
     }
 
     render() {
@@ -134,79 +131,58 @@ export default class AddTask extends Component<Props, State> {
 
             <details>
               <summary className="btn-link">Options</summary>
-              <div>
+              <div className="col-8">
 
-                <div className="form-group">
-                  <div className="form-group-header">
-                    <label htmlFor="deadline">Deadline <span className="text-small text-gray">(optional)</span></label>
-                  </div>
-                  <div className="form-group-body">
-                    <select className="form-select select-sm" id="deadline" name="deadline" onChange={this.handleChange}>
-                      <option></option>
-                      {deadlineOptions.map(deadline => {
-                        return (
-                          <option key={deadline} value={deadline}>{capitalize(deadline)}</option>
-                        )
-                      })}
-                    </select>
-                  </div>
+                <div className="text-gray-light mt-2 d-flex flex-items-center">
+                  <StopwatchIcon/>
+                  <select className="form-select select-sm flex-auto ml-2" id="deadline" name="deadline" onChange={this.handleChange}>
+                    <option value="">Deadline (optional)</option>
+                    {deadlineOptions.map(deadline => {
+                      return (
+                        <option key={deadline} value={deadline}>{capitalize(deadline)}</option>
+                      )
+                    })}
+                  </select>
                 </div>
 
-                <div className="form-group">
-                  <div className="form-group-header">
-                    <label htmlFor="recurringInterval">Recurring <span className="text-small text-gray">(optional)</span></label>
-                  </div>
-                  <div className="form-group-body">
-                    <select className="form-select select-sm" id="recurringInterval" name="recurringInterval" onChange={this.handleChange}>
-                      <option></option>
-                      {recurringIntervalOptions.map((interval, i) => {
-                        return (
-                          <option key={interval} value={i}>{capitalize(interval)}</option>
-                        )
-                      })}
-                    </select>
-                  </div>
+                <div className="text-gray-light mt-2 d-flex flex-items-center">
+                  <SyncIcon/>
+                  <select className="form-select select-sm flex-auto ml-2" id="recurringInterval" name="recurringInterval" onChange={this.handleChange}>
+                    <option value="">Recurring (optional)</option>
+                    {recurringIntervalOptions.map((interval, i) => {
+                      return (
+                        <option key={interval} value={i}>{capitalize(interval)}</option>
+                      )
+                    })}
+                  </select>
                 </div>
 
-                <div className="form-group">
-                  <div className="form-group-header">
-                    <label htmlFor="assignedGroup">Assigned team <span className="text-small text-gray">(optional)</span></label>
-                  </div>
-                  <div className="form-group-body">
-                    <select className="form-select select-sm" id="assignedGroup" name="assignedGroup" onChange={this.handleChange}>
-                      <option></option>
-                      {this.props.groups.map(group => {
-                        return (
-                          <option key={group.id} value={group.id}>{group.name}</option>
-                        )
-                      })}
-                    </select>
-                  </div>
+                <div className="text-gray-light mt-2 d-flex flex-items-center">
+                  <OrganizationIcon/>
+                  <select className="form-select select-sm flex-auto ml-2" id="assignedGroup" name="assignedGroup" onChange={this.handleChange}>
+                    <option value="">Assigned team (optional)</option>
+                    {this.props.groups.map(group => {
+                      return (
+                        <option key={group.id} value={group.id}>{group.name}</option>
+                      )
+                    })}
+                  </select>
                 </div>
 
-                <div className="form-group">
-                  <div className="form-group-header">
-                    <label htmlFor="assignedUser">Assigned person</label>
-                  </div>
-                  <div className="form-group-body">
-                    <select className="form-select select-sm" id="assignedUser" name="assignedUser" value={this.props.profile.id} onChange={this.handleChange}>
-                      <option></option>
+                  <div className="text-gray-light mt-2 d-flex flex-items-center">
+                  <PersonIcon/>
+                    <select className="form-select select-sm flex-auto ml-2" id="assignedUser" name="assignedUser" value={this.props.profile?.id} onChange={this.handleChange}>
                       {this.props.users.map(user => {
                         return (
                           <option key={user.id} value={user.id}>{user.name}</option>
                         )
                       })}
                     </select>
-                  </div>
                 </div>
 
-                <div className="form-group">
-                  <div className="form-group-header">
-                    <label htmlFor="notes">Notes <span className="text-small text-gray">(optional)</span></label>
-                  </div>
-                  <div className="form-group-body">
-                    <textarea className="form-control input-sm" rows={2} id="notes" name="notes" onChange={this.handleChange}></textarea>
-                  </div>
+                <div className="text-gray-light mt-2 d-flex flex-items-center">
+                <NoteIcon/>
+                  <textarea className="form-control input-sm flex-auto ml-2" rows={2} id="notes" name="notes" onChange={this.handleChange} placeholder="Notes"></textarea>
                 </div>
 
               </div>
