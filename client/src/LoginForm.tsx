@@ -61,7 +61,7 @@ export default class LoginForm extends Component<Props, State> {
 
   render() {
     return (
-      <div className="col-4 mx-auto mt-5">
+      <div className="col-sm-8 col-md-8 col-lg-6 mx-auto mt-5">
 
         <div className="text-center mb-3">
           <h3 className="f2-light mt-3">

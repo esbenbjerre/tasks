@@ -1,5 +1,6 @@
-import { NoteIcon, OrganizationIcon, PeopleIcon, PersonIcon, StopwatchIcon, SyncIcon } from "@primer/octicons-react"
+import { CalendarIcon, ClockIcon, NoteIcon, OrganizationIcon, PeopleIcon, PersonIcon, StopwatchIcon, SyncIcon } from "@primer/octicons-react"
 import React, {Component} from "react"
+import { reduceEachTrailingCommentRange } from "typescript"
 import { API_URL } from "./Constants"
 import { UserProfile, Identifiable, ToastType } from "./Models"
 import { Time } from "./Time"
@@ -16,13 +17,13 @@ type Props = {
 type State = {
   description: string,
   notes: string,
-  deadline: string,
+  date: string,
+  time: string,
   recurringInterval: string,
   assignedGroup: string
   assignedUser: string
 }
 
-const deadlineOptions = ["5 minutes", "10 minutes", "30 minutes", "1 hour", "1 day", "1 week", "1 month", "1 year"]
 const recurringIntervalOptions = ["hourly", "daily", "weekly", "monthly", "yearly"]
 
 const capitalize = (s: string) => {
@@ -36,7 +37,8 @@ export default class AddTask extends Component<Props, State> {
       this.state = {
         description: "",
         notes: "",
-        deadline: "",
+        date: "",
+        time: "",
         recurringInterval: "",
         assignedGroup: "",
         assignedUser: ""
@@ -55,34 +57,22 @@ export default class AddTask extends Component<Props, State> {
     handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
       event.preventDefault()
 
-      let now = new Date()
-      let deadline = 0
-      switch (this.state.deadline) {
-        case "5 minutes":
-          deadline = Time.toUnixTime(Time.addToDate(now, 5, "minute"))
-          break
-        case "10 minutes":
-          deadline = Time.toUnixTime(Time.addToDate(now, 10, "minute"))
-          break
-        case "30 minutes":
-          deadline = Time.toUnixTime(Time.addToDate(now, 30, "minute"))
-          break
-        case "1 hour":
-          deadline = Time.toUnixTime(Time.addToDate(now, 1, "hour"))
-          break
-        case "1 day":
-          deadline = Time.toUnixTime(Time.addToDate(now, 1, "day"))
-          break
-        case "1 week":
-          deadline = Time.toUnixTime(Time.addToDate(now, 1, "week"))
-          break
-        case "1 month":
-          deadline = Time.toUnixTime(Time.addToDate(now, 1, "month"))
-          break
-        case "1 year":
-          deadline = Time.toUnixTime(Time.addToDate(now, 1, "year"))
-          break
+      let dateFormat = /\d{4}-\d{2}-\d{2}/
+      let timeFormat = /\d{2}:\d{2}/
+      
+      if (this.state.date.length > 0 && !dateFormat.test(this.state.date)) {
+        return this.props.showToast("error", "Please format the date as YYYY-DD-MM")
       }
+
+      if (this.state.time.length > 0 && !timeFormat.test(this.state.time)) {
+        return this.props.showToast("error", "Please format the time as HH:MM")
+      }
+
+      if (this.state.date.length > 0 && this.state.time.length == 0 || this.state.time.length > 0 && this.state.date.length == 0) {
+        return this.props.showToast("info", "Due date must either be empty or include both date and time")
+      }
+
+      let deadline = this.state.date.length > 0 && this.state.date.length > 0 ? Time.toUnixTime(new Date(`${this.state.date}T${this.state.time}:00.000+01:00`)) : 0
 
       let body = JSON.stringify({
         description: this.state.description,
@@ -92,6 +82,8 @@ export default class AddTask extends Component<Props, State> {
         assignedGroup: this.state.assignedGroup === "" ? null : Number(this.state.assignedGroup),
         assignedUser: Number(this.state.assignedUser)
       })
+
+      console.log(body)
 
       this.props.withApiKey(apiKey => {
         fetch(`${API_URL}/tasks/create`,
@@ -131,24 +123,22 @@ export default class AddTask extends Component<Props, State> {
 
             <details>
               <summary className="btn-link">Options</summary>
-              <div className="col-8">
+              <div className="col-12 mt-4">
 
                 <div className="text-gray-light mt-2 d-flex flex-items-center">
-                  <StopwatchIcon/>
-                  <select className="form-select select-sm flex-auto ml-2" id="deadline" name="deadline" onChange={this.handleChange}>
-                    <option value="">Deadline (optional)</option>
-                    {deadlineOptions.map(deadline => {
-                      return (
-                        <option key={deadline} value={deadline}>{capitalize(deadline)}</option>
-                      )
-                    })}
-                  </select>
+                  <CalendarIcon/>
+                  <input className="form-select select-sm flex-auto ml-2" type="date" id="date" name="date" placeholder="YYYY-MM-DD" onChange={this.handleChange}/>
+                </div>
+
+                <div className="text-gray-light mt-2 d-flex flex-items-center">
+                  <ClockIcon/>
+                  <input className="form-select select-sm flex-auto ml-2" type="time" id="time" name="time" placeholder="HH:MM" onChange={this.handleChange}/>
                 </div>
 
                 <div className="text-gray-light mt-2 d-flex flex-items-center">
                   <SyncIcon/>
                   <select className="form-select select-sm flex-auto ml-2" id="recurringInterval" name="recurringInterval" onChange={this.handleChange}>
-                    <option value="">Recurring (optional)</option>
+                    <option value="">Recurring</option>
                     {recurringIntervalOptions.map((interval, i) => {
                       return (
                         <option key={interval} value={i}>{capitalize(interval)}</option>
@@ -160,7 +150,7 @@ export default class AddTask extends Component<Props, State> {
                 <div className="text-gray-light mt-2 d-flex flex-items-center">
                   <OrganizationIcon/>
                   <select className="form-select select-sm flex-auto ml-2" id="assignedGroup" name="assignedGroup" onChange={this.handleChange}>
-                    <option value="">Assigned team (optional)</option>
+                    <option value="">Assigned team</option>
                     {this.props.groups.map(group => {
                       return (
                         <option key={group.id} value={group.id}>{group.name}</option>

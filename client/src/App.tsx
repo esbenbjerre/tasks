@@ -111,7 +111,7 @@ export default class App extends Component<{}, State> {
         handleSignOut={this.handleSignOut}
         />}
         <div className="container-lg">
-          <div className="col-12 mx-auto">
+          <div className="col-sm-12 col-md-10 col-lg-10 mx-auto p-3">
               {!this.state.authenticated &&
               <LoginForm handleSignIn={this.handleSignIn}/>}
               {this.state.authenticated &&

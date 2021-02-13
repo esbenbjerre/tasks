@@ -68,7 +68,7 @@ export default class Tasks extends Component<Props, State> {
     let year = addZeroIfNeeded(`${date.getFullYear()}`)
     let hours = addZeroIfNeeded(`${date.getHours()}`)
     let minutes = addZeroIfNeeded(`${date.getMinutes()}`)
-    return `${day}/${month} ${year} ${hours}:${minutes}`
+    return `${year}-${month}-${day} ${hours}:${minutes}`
   }
 
   renderTaskLabels(timestamp: number, recurring: boolean): JSX.Element {
@@ -146,7 +146,7 @@ export default class Tasks extends Component<Props, State> {
 
   render() {
     return (
-      <div className="col-6 mx-auto mt-3">
+      <div className="col-sm-10 col-md-10 col-lg-8 mx-auto">
 
         <div className="Box Box--spacious f4">
           <div className="Box-header">
